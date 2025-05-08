@@ -1,0 +1,223 @@
+##Talos based edge node monitoring with Zeek
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zeek
+  labels:
+    app: zeek
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zeek
+  template:
+    metadata:
+      labels:
+        app: zeek
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                - ImAComputer #Change to point to a real hostname in your cluster
+      containers:
+      - name: zeek
+        image: zeek/zeek:latest
+    #   command: ["/usr/local/zeek/bin/zeek"]
+        command: ["/usr/bin/bash"]
+        ##Point -i to the appropriate host interface
+        args: ["-c", "cd /usr/local/zeek/logs && zeek -i enp6s0f1 --profile-scripts policy/tuning/json-logs.zeek"]
+        securityContext:
+          capabilities:
+            add:
+              - CAP_NET_RAW
+              - CAP_NET_ADMIN
+        volumeMounts:
+        - name: logs-shared
+          mountPath: /usr/local/zeek/logs/
+      - name: filebeat
+        image: elastic/filebeat:9.0.1
+        args: ["-c", "/opt/filebeat.yml", "--path.config", "/usr/share/filebeat/"]
+        volumeMounts:
+        - name: logs-shared
+          mountPath: /usr/share/filebeat/logs/
+        - name: filebeat-cm
+          mountPath: /opt/
+      hostNetwork: true #Needs the raw interface name
+      volumes:
+        - name: logs-shared
+          emptyDir: {}
+        - name: filebeat-cm
+          configMap:
+            name: filebeat-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: kube-system
+data:
+  filebeat.yml: |
+    filebeat.config:
+      modules:
+        path: ${path.config}/modules.d/*.yml
+        reload.enabled: false
+    processors:
+      - add_cloud_metadata: ~
+      - add_docker_metadata: ~
+    output.elasticsearch:
+      hosts: '${ELASTICSEARCH_HOSTS:https://elasticsearch:9200}'
+      username: '${ELASTICSEARCH_USERNAME:elastic}'
+      password: '${ELASTICSEARCH_PASSWORD:changeme}'
+      ssl.certificate_authorities: /path/to/certchain.pem #I use smallstep; any x509 chain will do
+    setup.kibana:
+      host: '${KIBANA_HOST:elasticsearch:5601}'
+      protocol: https
+      username: '${ELASTICSEARCH_USERNAME:elastic}'
+      password: '${ELASTICSEARCH_PASSWORD:changeme}'
+      ssl.enable: true
+      ssl.verification_mode: full
+      ssl.certificate_authorities: //path/to/certchain.pem #Same as above
+    filebeat.modules:
+    - module: zeek
+    # capture_loss:
+    #   enabled: true
+    #   var.paths:
+    #     - /usr/share/filebeat/logs/conn*.log
+      connection:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/conn*.log
+    # dce_rpc:
+    #   enabled: true
+      dhcp:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/dhcp*.log
+    # dnp3:
+    #   enabled: true
+      dns:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/dns*.log
+      dpd:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/dpd*.log
+      files:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/files*.log
+      ftp:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/ftp*.log
+      http:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/http*.log
+    # intel:
+    #   enabled: true
+      irc:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/irc*.log
+      kerberos:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/kerberos*.log
+    # modbus:
+    #   enabled: true
+    # mysql:
+    #   enabled: true
+      notice:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/notice*.log
+      ntp:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/ntp*.log
+    # ntlm:
+    #   enabled: true
+      ocsp:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/ocsp*.log
+    # pe:
+    #   enabled: true
+      radius:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/radius*.log
+    # rdp:
+    #   enabled: true
+    # rfb:
+    #   enabled: true
+    # signature:
+    #   enabled: true
+      sip:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/sip*.log
+    # smb_cmd:
+    #   enabled: true
+    # smb_files:
+    #   enabled: true
+    # smb_mapping:
+    #   enabled: true
+      smtp:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/smtp*.log
+      snmp:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/snmp*.log
+      socks:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/socks*.log
+      ssh:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/ssh*.log
+      ssl:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/ssl*.log
+      stats:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/stats*.log
+      syslog:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/syslog*.log
+      traceroute:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/traceroute*.log
+      tunnel:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/tunnel*.log
+      weird:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/weird*.log
+      x509:
+        enabled: true
+        var.paths:
+          - /usr/share/filebeat/logs/x509*.log
+  certificate.pem: |
+    -----BEGIN CERTIFICATE-----
+    LONGBORINGSTRING
+    -----END CERTIFICATE-----
+    -----BEGIN CERTIFICATE-----
+    LONGBORINGSTRING
+    -----END CERTIFICATE----- 
